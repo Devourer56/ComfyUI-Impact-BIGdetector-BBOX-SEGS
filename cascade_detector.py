@@ -38,13 +38,13 @@ class CascadeDetector:
                 ),
                 "iou_threshold": (
                     "FLOAT",
-                    {"default": 0.90, "min": 0.01, "max": 0.99, "step": 0.01},
+                    {"default": 0.50, "min": 0.01, "max": 0.99, "step": 0.01},
                 ),
                 # --- NEW: include_masks_in_output switch ---
                 "include_masks_in_output": (
                     "BOOLEAN",
                     {
-                        "default": False,
+                        "default": True,
                         "tooltip": "If True, attempts to recalculate masks for stages 2 and 3 to be compatible with output coordinates (high computational load) and generates masked fragments image. If False, masks from stages 2 and 3 are set to None to prevent errors, and masked fragments image is blank."
                     },
                 ),
@@ -52,7 +52,7 @@ class CascadeDetector:
                 "simplify_masks": (
                     "BOOLEAN",
                     {
-                        "default": False,
+                        "default": True,
                         "tooltip": "If True, applies morphological closing to smooth and fill gaps in the recalculated masks (only active if include_masks_in_output is True)."
                     },
                 ),
@@ -109,7 +109,7 @@ class CascadeDetector:
                 # --- NEW: stage_1_crop_factor ---
                 "stage_1_crop_factor": (
                     "FLOAT",
-                    {"default": 3.0, "min": 1.0, "max": 10.0, "step": 0.1},
+                    {"default": 1.0, "min": 1.0, "max": 10.0, "step": 0.1},
                 ),
                 # --- NEW: stage_1_scale_mode ---
                 "stage_1_scale_mode": (scale_modes, {"default": "bbox"}), # NEW
@@ -177,7 +177,7 @@ class CascadeDetector:
                 # --- NEW: stage_2_crop_factor ---
                 "stage_2_crop_factor": (
                     "FLOAT",
-                    {"default": 3.0, "min": 1.0, "max": 10.0, "step": 0.1},
+                    {"default": 1.0, "min": 1.0, "max": 10.0, "step": 0.1},
                 ),
                 # --- NEW: stage_2_scale_mode ---
                 "stage_2_scale_mode": (scale_modes, {"default": "bbox"}), # NEW
@@ -232,7 +232,7 @@ class CascadeDetector:
                 # --- NEW: stage_3_crop_factor ---
                 "stage_3_crop_factor": (
                     "FLOAT",
-                    {"default": 3.0, "min": 1.0, "max": 10.0, "step": 0.1},
+                    {"default": 1.0, "min": 1.0, "max": 10.0, "step": 0.1},
                 ),
                 # --- NEW: stage_3_scale_mode ---
                 "stage_3_scale_mode": (scale_modes, {"default": "bbox"}), # NEW
@@ -245,7 +245,7 @@ class CascadeDetector:
                     "INT",
                     {"default": 1024, "min": 64, "max": MAX_RESOLUTION, "step": 8},
                 ),
-                # --- NEW: stage_3_process_empty ---
+
                 "stage_3_process_empty": (
                     "BOOLEAN",
                     {
@@ -253,8 +253,7 @@ class CascadeDetector:
                         "tooltip": "If True and Stage 3 receives no input segments from Stage 2, it will run its detector on the full input image. If False, it will output an empty list of segments."
                     },
                 ),
-                # Общие параметры детекции (оставим для совместимости, но используем stage_X_crop_factor)
-                # "crop_factor": ("FLOAT", {"default": 3.0, "min": 1.0, "max": 10.0, "step": 0.1}), # Убираем
+
                 "drop_size": ("INT", {"default": 1, "min": 1, "max": 100, "step": 1}),
             },
             "hidden": {
@@ -263,7 +262,6 @@ class CascadeDetector:
             }
         }
 
-    # --- NEW: Removed stage1/2/3_preview outputs, added masked_fragments_image ---
     RETURN_TYPES = (
         "SEGS", # segs_output_all_stages
         "IMAGE", # preview_image
@@ -274,7 +272,7 @@ class CascadeDetector:
         "IMAGE", # masked_fragments_image (NEW)
         "IMAGE", # image_bypass
     )
-    # --- NEW: Restore RETURN_NAMES ---
+
     RETURN_NAMES = (
         "segs_output_all_stages (Combined)",
         "preview_image (Combined Detections)",
@@ -285,8 +283,7 @@ class CascadeDetector:
         "masked_fragments_image (Masked Fragments)",
         "image_bypass (Original if No Detections)",
     )
-    # --- NEW: Removed OUTPUT_IS_LIST for previews ---
-    # OUTPUT_IS_LIST = (False, False, False, False, False, False, True, True, True, False) # OLD
+
     FUNCTION = "process"
     CATEGORY = "Detection/Cascade"
     DESCRIPTION = """Cascaded detector for ComfyUI. Supports sequential and parallel processing with bbox/segm models. Requires Impact Pack. 
@@ -707,7 +704,7 @@ class CascadeDetector:
             preview_np = np.stack([preview_np] * 3, axis=-1)
         return torch.from_numpy(preview_np).unsqueeze(0)
 
-    # --- NEW: Function to create a combined image of cropped fragments (as in original code, improved layout) ---
+
     def create_cropped_fragments_image(
         self, image_tensor: torch.Tensor, segs_list: List[Dict], padding: int = 10
     ) -> torch.Tensor:
@@ -745,7 +742,7 @@ class CascadeDetector:
         canvas_img = Image.new(
             "RGBA" if c == 4 else "RGB", (canvas_size, canvas_size), color=bg_color
         )
-        # canvas_draw = ImageDraw.Draw(canvas_img) # REMOVED: No yellow border
+        # canvas_draw = ImageDraw.Draw(canvas_img)
         current_x = padding
         current_y = padding
         row_height = 0
@@ -768,7 +765,7 @@ class CascadeDetector:
             #     outline=(255, 255, 0),
             #     width=10,
             # )
-            current_x += frag_w + padding # ADDED: spacing between columns
+            current_x += frag_w + padding
             row_height = max(row_height, frag_h)
 
         final_canvas = canvas_img.crop(
