@@ -4,6 +4,7 @@ This was created using AI, and the node functionality would probably have been m
 
 The guarantee of operation is the same as for any code written using AI.
 
+![Node ScreenShot](https://github.com/user-attachments/assets/95b9472d-192e-4ffa-97da-a00a03c39130)
 
 
 The node functionality can be used for sequential detection on a single image (use the node as a magnifying glass to accurately detect the fragment). Or, it can be used in parallel if you need to aggregate multiple SEGS from a single source image into a single output with IoU filtering.
@@ -69,4 +70,5 @@ stage1\_segs, stage2\_segs, stage3\_segs: SEGS output for the results of each st
 masked\_fragments\_image: An image containing cropped and masked fragments (only the inner part of the mask is visible) of all detected segments (requires include\_masks\_in\_output=True).
 
 Image Bypass: Returns the original image if no segments are found in segs\_output\_all\_stages after filtering; otherwise, returns a black square. Useful for organizing processing chains where, if detection fails, the original image should be used in another node.
+
 
