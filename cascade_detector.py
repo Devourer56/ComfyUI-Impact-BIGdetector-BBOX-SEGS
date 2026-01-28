@@ -9,7 +9,6 @@ import cv2
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-logger.info("CascadeDetector script loaded.")
 
 class CascadeDetector:
     @classmethod
@@ -90,9 +89,8 @@ class CascadeDetector:
     )
     FUNCTION = "process"
     CATEGORY = "Detection/Cascade"
-    DESCRIPTION = """Cascaded detector for ComfyUI. Supports sequential and parallel processing with bbox/segm models. Requires Impact Pack.
-Fixed version: Correctly handles non-square resolutions (e.g., 1152x1280) by ensuring mask dimensions always match crop_region.
-Colored preview: Stage 1 = Red, Stage 2 = Green, Stage 3 = Blue, Combined = Yellow."""
+    DESCRIPTION = """Cascaded detector for ComfyUI. Supports sequential/parallel processing with bbox/segm models. 
+FIXED: Correctly handles non-square resolutions (e.g., 1152x1280) and Impact Pack compatibility by using numpy masks."""
 
     def __init__(self):
         self.device = comfy.model_management.get_torch_device()
@@ -103,7 +101,6 @@ Colored preview: Stage 1 = Red, Stage 2 = Green, Stage 3 = Blue, Combined = Yell
         try:
             from impact.core import SEG
             self.SEG_IMPACT = SEG
-            logger.info("Impact Pack core components imported successfully.")
             return True
         except ImportError as e:
             logger.error(f"Impact Pack not available: {e}")
@@ -187,6 +184,8 @@ Colored preview: Stage 1 = Red, Stage 2 = Green, Stage 3 = Blue, Combined = Yell
         full_mask = np.zeros(original_image_shape_hw, dtype=np.uint8)
         old_cropped_mask = seg_result.get("cropped_mask")
         if old_cropped_mask is not None and old_cropped_mask.size > 0:
+            if isinstance(old_cropped_mask, torch.Tensor):
+                old_cropped_mask = old_cropped_mask.cpu().numpy()
             if old_cropped_mask.ndim == 3 and old_cropped_mask.shape[0] == 1:
                 old_cropped_mask = old_cropped_mask[0]
             elif old_cropped_mask.ndim > 2:
@@ -209,7 +208,6 @@ Colored preview: Stage 1 = Red, Stage 2 = Green, Stage 3 = Blue, Combined = Yell
                 full_mask[y1_cr:y2_cr, x1_cr:x2_cr] = resized_mask
         new_cropped_mask = full_mask[y1_cr:y2_cr, x1_cr:x2_cr].astype(np.float32) / 255.0
         if new_cropped_mask.shape[:2] != (fragment_h, fragment_w):
-            logger.warning(f"Mask size mismatch, creating fallback empty mask for crop_region {(fragment_w, fragment_h)}")
             new_cropped_mask = np.zeros((fragment_h, fragment_w), dtype=np.float32)
         seg_result["cropped_mask"] = new_cropped_mask
         return seg_result
@@ -382,6 +380,7 @@ Colored preview: Stage 1 = Red, Stage 2 = Green, Stage 3 = Blue, Combined = Yell
             final_np = np.concatenate([final_np, np.ones((final_np.shape[0], final_np.shape[1], 1), dtype=final_np.dtype)], axis=-1)
         return torch.from_numpy(final_np).unsqueeze(0)
 
+    # CRITICAL FIX: Impact Pack requires numpy.ndarray masks, NOT torch.Tensor
     def convert_to_segs_format(self, segs_list: List[Dict], image_shape_wh: Tuple[int, int]) -> Optional[Tuple]:
         if not self.IMPACT_AVAILABLE:
             logger.error("Impact Pack not available. Cannot convert to SEGS format.")
@@ -389,25 +388,39 @@ Colored preview: Stage 1 = Red, Stage 2 = Green, Stage 3 = Blue, Combined = Yell
         try:
             segs_objects = []
             for seg in segs_list:
-                cropped_mask_tensor = seg.get("cropped_mask")
-                if cropped_mask_tensor is not None:
-                    if not isinstance(cropped_mask_tensor, torch.Tensor):
-                        cropped_mask_tensor = torch.from_numpy(cropped_mask_tensor)
-                    if cropped_mask_tensor.ndim == 2:
-                        cropped_mask_tensor = cropped_mask_tensor.unsqueeze(0)
-                    if cropped_mask_tensor.ndim != 3:
-                        logger.warning(f"Skipping seg with incorrect mask dims: {cropped_mask_tensor.ndim}")
-                        continue
-                    if cropped_mask_tensor.max() > 1.0:
-                        cropped_mask_tensor = cropped_mask_tensor / 255.0
+                # ALWAYS use numpy.ndarray for cropped_mask (Impact Pack requirement)
+                cropped_mask_np = seg.get("cropped_mask")
+                if cropped_mask_np is not None:
+                    if isinstance(cropped_mask_np, torch.Tensor):
+                        cropped_mask_np = cropped_mask_np.cpu().numpy()
+                    if cropped_mask_np.ndim == 3:
+                        if cropped_mask_np.shape[0] == 1:
+                            cropped_mask_np = cropped_mask_np.squeeze(0)
+                        else:
+                            cropped_mask_np = cropped_mask_np.mean(axis=0)
+                    if cropped_mask_np.max() > 1.0:
+                        cropped_mask_np = cropped_mask_np / 255.0
+                    # CRITICAL: Verify dimensions match crop_region EXACTLY
+                    crop_region = seg.get("crop_region", seg["bbox"])
+                    expected_h = crop_region[3] - crop_region[1]
+                    expected_w = crop_region[2] - crop_region[0]
+                    if cropped_mask_np.shape != (expected_h, expected_w):
+                        logger.warning(
+                            f"Mask size mismatch! Expected ({expected_h}, {expected_w}), got {cropped_mask_np.shape}. "
+                            f"Creating fallback empty mask."
+                        )
+                        cropped_mask_np = np.zeros((expected_h, expected_w), dtype=np.float32)
                 else:
+                    # ALWAYS create valid empty mask with CORRECT dimensions as numpy array
                     crop_region = seg.get("crop_region", seg["bbox"])
                     h = crop_region[3] - crop_region[1]
                     w = crop_region[2] - crop_region[0]
-                    cropped_mask_tensor = torch.zeros((1, h, w), dtype=torch.float32)
+                    cropped_mask_np = np.zeros((h, w), dtype=np.float32)
+                
+                # Create SEG object with numpy mask (NOT torch tensor) - THIS FIXES THE ERROR
                 seg_obj = self.SEG_IMPACT(
                     cropped_image=None,
-                    cropped_mask=cropped_mask_tensor,
+                    cropped_mask=cropped_mask_np,  # ← MUST be numpy.ndarray for Impact Pack compatibility
                     confidence=seg.get("confidence", 0.5),
                     crop_region=seg.get("crop_region", seg["bbox"]),
                     bbox=seg["bbox"],
