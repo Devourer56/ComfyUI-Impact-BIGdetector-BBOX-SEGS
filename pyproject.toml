@@ -28,7 +28,7 @@ Documentation = "https://github.com/Devourer56/ComfyUI-Impact-BIGdetector-BBOX-S
 "Bug Tracker" = "https://github.com/Devourer56/ComfyUI-Impact-BIGdetector-BBOX-SEGS/issues"
 
 [tool.comfy]
-PublisherId = ""
+PublisherId = "@devourer56"
 DisplayName = "ComfyUI-Impact-BIGdetector-BBOX-SEGS"
 Icon = ""
 includes = [] 
