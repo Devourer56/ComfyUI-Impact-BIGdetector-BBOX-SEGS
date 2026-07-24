@@ -9,7 +9,7 @@ on:
 
 permissions:
   issues: write
-
+  contents: write
 jobs:
   publish-node:
     name: Publish Custom Node to registry
